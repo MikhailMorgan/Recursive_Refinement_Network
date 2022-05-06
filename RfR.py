@@ -63,13 +63,13 @@ class OutConv(nn.Module):
     def forward(self, x):
         return self.conv_sigmoid(x)
 
-class RfR(nn.Module):
+class RfR_model(nn.Module):
 
     #inter_in_channels = 64
     #last_in_channels = 32 + 3 # 32(context) + 3(flow)
     
     def __init__(self, name, in_channels, out_channels):
-        super(RfR, self).__init__()
+        super(RfR_model, self).__init__()
         self.name = name
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -88,7 +88,7 @@ class RfR(nn.Module):
         self.up4 = Up(4*self.in_channels, 2*self.in_channels)
         self.up5 = Up(2*self.in_channels, 2*self.in_channels)
         self.up6 = Up(2*self.in_channels, self.out_channels)
-        self.outputL = OutConv(self.in_channels, )
+        self.outputL = OutConv(self.in_channels, self.out_channels)
         
     def forward(self, x):
         x1 = self.inputL(x)
@@ -111,10 +111,3 @@ class RfR(nn.Module):
         
         return x
         
-inp_channel = 3
-opt_channel = 2
-DVF_est = RfR('RunfastReg', inp_channel, opt_channel)
-if cuda == True:
-    my_UNet.cuda()
-else:
-    my_UNet

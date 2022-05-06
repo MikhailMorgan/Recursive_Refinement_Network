@@ -118,19 +118,19 @@ class RRNFlow(nn.Module):
                 gy = gy.repeat(B, 1, 1, 1).to(gpu_utils.device)
                 x_in = torch.cat([x_in, action_tensor, gx, gy], dim=1)
 
-            # Use dense-net connections.
-            x_out = None
-            if self._shared_flow_decoder:
-                # reuse the same flow decoder on all levels
-                flow_layers = self._flow_layers
-            else:
-                flow_layers = self._flow_layers[level]
-            for layer in flow_layers[:-1]:
-                x_out = layer(x_in)
-                x_in = torch.cat([x_in, x_out], dim=1)
-            context = x_out
+            # # Use dense-net connections.                                                                                              # This block processes flow the RRN flow layers - it is no longer required,
+            # x_out = None                                                                                                              # because {RfR.py} contains all the architecture and mechanisms needed to 
+            # if self._shared_flow_decoder:                                                                                             # output context. The flow is currently caclulated by an additional sequencial 
+                # # reuse the same flow decoder on all levels                                                                           # CNN layer which further reduces the context channel to produce flow
+                # flow_layers = self._flow_layers
+            # else:                                                                                                                     # If the current implimentation of RfR does not work, it will likely be due
+                # flow_layers = self._flow_layers[level]                                                                                # to a problem integrating {RfR.py} into the RRN repo. So we can attempt to
+            # for layer in flow_layers[:-1]:                                                                                            # 
+                # x_out = layer(x_in)
+                # x_in = torch.cat([x_in, x_out], dim=1)                                                                                # I assume this is the recursive portion?
+            # context = x_out
 
-            flow = flow_layers[-1](context)
+            # flow = flow_layers[-1](context)
 
             # dropout full layer
             if self.training and self._drop_out_rate:
@@ -208,10 +208,23 @@ class RRNFlow(nn.Module):
             #if self._action_channels is not None and self._action_channels > 0:                    # This condition is never true because _action_channels is forced None
             #    last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
             if i != self._num_levels-1:                                                             # if building intermediate - as opposed to initial - DVF (num_layers = 5),
-                last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(upsampled feature 1?) 
+                last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(upsampled feature 1?)
                 
-            
-                
+            DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
+                if cuda == True:
+                    context = DVF_est.cuda()
+                else:
+                    context = DVF_est
+            self.double_conv = nn.Sequential(                                                            # Probably not the best place for a definition like this? Lol
+                nn.Conv3d(_num_context_up_channels, 3, kernel_size=3, padding=1),
+                nn.BatchNorm3d(3),
+                nn.ReLU(inplace=True),
+                nn.Conv3d(3, 3, kernel_size=3, padding=1),
+                nn.BatchNorm3d(3),
+                nn.ReLU(inplace=True)
+                )
+            flow = self.double_conv(x)
+                 
 """ This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
 
             for c in block_layers:                                                                  # This loop creates the final/interm DVF by appending 3D CNN layers in
@@ -271,7 +284,7 @@ class RRNFlow(nn.Module):
         result = nn.ModuleList([nn.ModuleList()])
         for _ in range(1, self._num_levels):
             result.append(
-                nn.Conv2d(
+                nn.Conv3d(
                     in_channels= 32,
                     out_channels=32,
                     kernel_size=(1, 1),
