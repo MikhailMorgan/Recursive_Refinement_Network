@@ -1,16 +1,17 @@
-import torch.nn as nn
-import torch
-import torch.nn.functional as func
-import gpu_utils
-
+import torch.nn as nn                                                           # This is the psuedocode for the RfR implimentation of Dr. Guo's RRN MRI Registration project. 
+import torch                                                                    # {} : refers to another file in the repo/directory
+import torch.nn.functional as func                                              # [] : refers to a line in the current file, unless prefixed with {} or comma-seperated
+import gpu_utils                                                                # [,]: refers to a tuple, list, array, matrix, tensor, etc.
+                                                                                # Variables are refered to by their handle name
 import rrn_utils
+import RfR
 
 class RRNFlow(nn.Module):
     def __init__(self,
                  leaky_relu_alpha=0.05,
-                 dropout_rate=0,
-                 num_channels_upsampled_context=32,
-                 num_levels=5,
+                 drop_out_rate=0,
+                 num_context_up_channels = 32;
+                 num_levels=5, 
                  normalize_before_cost_volume=True,
                  channel_multiplier=1.,
                  use_cost_volume=True,
@@ -21,8 +22,8 @@ class RRNFlow(nn.Module):
         super(RRNFlow, self).__init__()
 
         self._leaky_relu_alpha = leaky_relu_alpha
-        self._drop_out_rate = dropout_rate
-        self._num_context_up_channels = num_channels_upsampled_context
+        self._drop_out_rate = drop_out_rate
+        self._num_context_up_channels = num_context_up_channels
         self._num_levels = num_levels
         self._normalize_before_cost_volume = normalize_before_cost_volume
         self._channel_multiplier = channel_multiplier
@@ -34,11 +35,11 @@ class RRNFlow(nn.Module):
 
         self._refine_model = self._build_refinement_model()
         self._flow_layers = self._build_flow_layers()
-        if not self._use_cost_volume:
-            self._cost_volume_surrogate_convs = self._build_cost_volume_surrogate_convs()
-        if num_channels_upsampled_context:
+        if not self._use_cost_volume:                                                                               # Currently false because use_cost_volume = True, but
+            self._cost_volume_surrogate_convs = self._build_cost_volume_surrogate_convs()                           # the function called in this line is defined on [173]
+        if num_context_up_channels:
             self._context_up_layers = self._build_upsample_layers(
-                num_channels=int(num_channels_upsampled_context * channel_multiplier))
+                num_channels=int(num_context_up_channels * channel_multiplier))
         if self._shared_flow_decoder:
             # pylint:disable=invalid-name
             self._1x1_shared_decoder = self._build_1x1_shared_decoder()
@@ -51,11 +52,11 @@ class RRNFlow(nn.Module):
         context_up = None
         flows = []
 
-        # make sure that actions are provided iff network is configured for action use
-        if actions is not None:
-            assert self._action_channels == actions.shape[1]
-        else:
-            assert self._action_channels is None
+        # make sure that actions are provided iff network is configured for action use                              # This block is currently irrelevant because actions and 
+        #if actions is not None:                                                                                    # action_channels are both None. No need to check or assert
+        #    assert self._action_channels == actions.shape[1]                                                       # anything, and we may want to consolidate the two variables.
+        #else:
+        #    assert self._action_channels is None
 
         # Go top down through the levels to the second to last one to estimate flow.
         for level, (features1, features2) in reversed(
@@ -65,9 +66,9 @@ class RRNFlow(nn.Module):
             if self._shared_flow_decoder and flow_up is None:
                 batch_size, height, width, _ = features1.shape.as_list()
                 flow_up = torch.zeros([batch_size, height, width, 2]).to(gpu_utils.device)
-                if self._num_context_up_channels:
-                    num_channels = int(self._num_context_up_channels *
-                                       self._channel_multiplier)
+                if self._num_context_up_channels:                                                                   # Currently always true
+                    num_channels = int(self._num_context_up_channels *                                              # Channel multiplier is 1 so this does nothing
+                                       self._channel_multiplier)                                                    
                     context_up = torch.zeros([batch_size, height, width, num_channels]).to(gpu_utils.device)
 
             # Warp features2 with upsampled flow from higher level.
@@ -169,14 +170,14 @@ class RRNFlow(nn.Module):
 
         return flows
 
-    def _build_cost_volume_surrogate_convs(self):
+    def _build_cost_volume_surrogate_convs(self):                                                   # This is used if use_cost_volume is not true, which is currently is. {rrn_net.py}
         layers = nn.ModuleList()
         for _ in range(self._num_levels):
             layers.append(nn.Sequential(
                 nn.ZeroPad3d((2,1,2,1,2,1)), # should correspond to "SAME" in keras
                 nn.Conv3d(
-                    in_channels=int(64 * self._channel_multiplier),
-                    out_channels=int(64 * self._channel_multiplier),
+                    in_channels=int(64 * self._channel_multiplier),                                 # Currently 64 because channel_multiplier = 1
+                    out_channels=int(64 * self._channel_multiplier),                                # Currently 64 because channel_multiplier = 1
                     kernel_size=(4, 4)))
             )
         return layers
@@ -194,34 +195,37 @@ class RRNFlow(nn.Module):
                     padding=1))
         return nn.ModuleList(layers)
 
-    def _build_flow_layers(self):
-        """Build layers for flow estimation."""
-        # Empty list of layers level 0 because flow is only estimated at levels > 0.
+    def _build_flow_layers(self):                                                                   # The following is for Figure 2d. We are using CNN layers to estimate DVF;
+        """Build layers for flow estimation."""                                                     # The original implimentation used an RNN but we have replaced it with 
+        # Empty list of layers level 0 because flow is only estimated at levels > 0.                # a modified UNet called RunfastReg (RfR). 
         result = nn.ModuleList()
 
         block_layers = [128, 128, 96, 64, 32]
-        input_feat_shape = [196,128,96,64,32,16][::-1][:4]
+        input_feat_shape = [196,128,96,64,32,16][::-1][:4]                                          # Why do it this way? input_feat_shape = [16, 32, 64, 96]
         for i in range(0, self._num_levels):
-            layers = nn.ModuleList()
-            last_in_channels = (64+32) if not self._use_cost_volume else (125+input_feat_shape[i])
-            if self._action_channels is not None and self._action_channels > 0:
-                last_in_channels += self._action_channels + 2 # 2 for xy augmentation
-            if i != self._num_levels-1:
-                last_in_channels += 3 + self._num_context_up_channels
+            layers = nn.ModuleList()                                                                # Context currently has 32 layers
+            last_in_channels = (64+32)#if not self._use_cost_volume else (125+input_feat_shape[i])  # Number of channels into final RfR Layer; _use_cost_volume=True (line 16)
+            #if self._action_channels is not None and self._action_channels > 0:                    # This condition is never true because _action_channels is forced None
+            #    last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
+            if i != self._num_levels-1:                                                             # if building intermediate DVF (num_layers = 5),
+                last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(feature 1?) 
+                
+                
+""" This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
 
-            for c in block_layers:
-                layers.append(
-                    nn.Sequential(
+            for c in block_layers:                                                                  # This loop creates the final/interm DVF by appending 3D CNN layers in
+                layers.append(                                                                      # sequence (using the length and elements of block_layers to determine the 
+                    nn.Sequential(                                                                  # depth and channel outputs respectively) according to Fig.2(d).
                         nn.Conv3d(
-                            in_channels=last_in_channels,
-                            out_channels=int(c * self._channel_multiplier),
+                            in_channels=last_in_channels,                                           # last_in_channels = 64+32
+                            out_channels=int(c * self._channel_multiplier),                         # c cycles block layers;  _channel_multiplier = 1.
                             kernel_size=(3, 3, 3),
                             padding=1),
                         nn.LeakyReLU(
                             negative_slope=self._leaky_relu_alpha)
                     ))
                 last_in_channels += int(c * self._channel_multiplier)
-            layers.append(
+            layers.append(                                                                          # The final layer of the DVF is appended to the DVF sequence here.
                 nn.Conv3d(
                     in_channels=block_layers[-1],
                     out_channels=3,
@@ -231,12 +235,14 @@ class RRNFlow(nn.Module):
                 return layers
             result.append(layers)
         return result
+[end of snippet]"""
 
-    def _build_refinement_model(self):
-        """Build model for flow refinement using dilated convolutions."""
+""" This is the original final DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+    def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
+        #Build model for flow refinement using dilated convolutions.                                 # with Fig.2(e).
         layers = []
-        last_in_channels = 32+3
-        for c, d in [(128, 1), (128, 2), (128, 4), (96, 8), (64, 16), (32, 1)]:
+        last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
+        for c, d in [(128, 1), (128, 2), (128, 4), (96, 8), (64, 16), (32, 1)]:                     # List of tuples: (each layer's output channel size, dilation)
             layers.append(
                 nn.Conv3d(
                     in_channels=last_in_channels,
@@ -256,6 +262,7 @@ class RRNFlow(nn.Module):
                 stride=1,
                 padding=1))
         return nn.ModuleList(layers)
+[end of snippet]"""
 
     def _build_1x1_shared_decoder(self):
         """Build layers for flow estimation."""
@@ -347,3 +354,56 @@ class RRNFeaturePyramid(nn.Module):
       features = [[f[i:i + 1] for f in features] for i in range(n)]  # pylint: disable=g-complex-comprehension
 
     return features
+
+""" This is the original DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+
+            for c in block_layers:                                                                  # This loop creates the final/interm DVF by appending 3D CNN layers in
+                layers.append(                                                                      # sequence (using the length and elements of block_layers to determine the 
+                    nn.Sequential(                                                                  # depth and channel outputs respectively) according to Fig.2(d).
+                        nn.Conv3d(
+                            in_channels=last_in_channels,                                           # last_in_channels = 64+32
+                            out_channels=int(c * self._channel_multiplier),                         # c cycles block layers;  _channel_multiplier = 1.
+                            kernel_size=(3, 3, 3),
+                            padding=1),
+                        nn.LeakyReLU(
+                            negative_slope=self._leaky_relu_alpha)
+                    ))
+                last_in_channels += int(c * self._channel_multiplier)
+            layers.append(                                                                          # The final layer of the DVF is appended to the DVF sequence here.
+                nn.Conv3d(
+                    in_channels=block_layers[-1],
+                    out_channels=3,
+                    kernel_size=(3, 3, 3),
+                    padding=1))
+            if self._shared_flow_decoder:
+                return layers
+            result.append(layers)
+        return result
+[end of snippet]"""
+
+""" This is the original final DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+    def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
+        #Build model for flow refinement using dilated convolutions.                                 # with Fig.2(e).
+        layers = []
+        last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
+        for c, d in [(128, 1), (128, 2), (128, 4), (96, 8), (64, 16), (32, 1)]:                     # List of tuples: (each layer's output channel size, dilation)
+            layers.append(
+                nn.Conv3d(
+                    in_channels=last_in_channels,
+                    out_channels=int(c * self._channel_multiplier),
+                    kernel_size=(3, 3,3),
+                    stride=1,
+                    padding=d,
+                    dilation=d))
+            layers.append(
+                nn.LeakyReLU(negative_slope=self._leaky_relu_alpha))
+            last_in_channels = int(c * self._channel_multiplier)
+        layers.append(
+            nn.Conv3d(
+                in_channels=last_in_channels,
+                out_channels=3,
+                kernel_size=(3, 3,3),
+                stride=1,
+                padding=1))
+        return nn.ModuleList(layers)
+[end of snippet]"""
