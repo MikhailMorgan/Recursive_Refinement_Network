@@ -195,21 +195,22 @@ class RRNFlow(nn.Module):
                     padding=1))
         return nn.ModuleList(layers)
 
-    def _build_flow_layers(self):                                                                   # The following is for Figure 2d. We are using CNN layers to estimate DVF;
+    def _build_flow_layers(self):                                                                   # The following is for Figure 2d. We are using CNN layers to estimate initial and intermdiate DVF;
         """Build layers for flow estimation."""                                                     # The original implimentation used an RNN but we have replaced it with 
         # Empty list of layers level 0 because flow is only estimated at levels > 0.                # a modified UNet called RunfastReg (RfR). 
         result = nn.ModuleList()
 
-        block_layers = [128, 128, 96, 64, 32]
+        block_layers = [128, 128, 96, 64, 32]                                                       # Channel output for each layer of DVF
         input_feat_shape = [196,128,96,64,32,16][::-1][:4]                                          # Why do it this way? input_feat_shape = [16, 32, 64, 96]
-        for i in range(0, self._num_levels):
+        for i in range(0, self._num_levels):                                                        # Loop moves through each level of the RRN (NOT THE DVF)
             layers = nn.ModuleList()                                                                # Context currently has 32 layers
             last_in_channels = (64+32)#if not self._use_cost_volume else (125+input_feat_shape[i])  # Number of channels into final RfR Layer; _use_cost_volume=True (line 16)
             #if self._action_channels is not None and self._action_channels > 0:                    # This condition is never true because _action_channels is forced None
             #    last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
-            if i != self._num_levels-1:                                                             # if building intermediate DVF (num_layers = 5),
-                last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(feature 1?) 
+            if i != self._num_levels-1:                                                             # if building intermediate - as opposed to initial - DVF (num_layers = 5),
+                last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(upsampled feature 1?) 
                 
+            
                 
 """ This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
 
