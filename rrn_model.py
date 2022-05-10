@@ -10,7 +10,7 @@ class RRNFlow(nn.Module):
     def __init__(self,
                  leaky_relu_alpha=0.05,
                  drop_out_rate=0,
-                 num_context_up_channels = 32;
+                 num_context_up_channels = 32,
                  num_levels=5, 
                  normalize_before_cost_volume=True,
                  channel_multiplier=1.,
@@ -200,7 +200,7 @@ class RRNFlow(nn.Module):
         """Build layers for flow estimation."""                                                     # The original implimentation used an RNN but we have replaced it with 
         # Empty list of layers level 0 because flow is only estimated at levels > 0.                # a modified UNet called RunfastReg (RfR). 
         # result = nn.ModuleList()
-
+        out = []
         for i in range(0, self._num_levels):                                                        # Loop moves through each level of the RRN (NOT THE DVF)
             #layers = nn.ModuleList()                                                               # Context currently has 32 layers
             last_in_channels = (64+32)#if not self._use_cost_volume else (125+input_feat_shape[i])  # Number of channels into final RfR Layer; _use_cost_volume=True (line 16)
@@ -217,38 +217,14 @@ class RRNFlow(nn.Module):
             #
             with torch.no_grad():
                 if cuda == True:
-                    return DVF_est().cuda()
+                    out = DVF_est().cuda()
                 else:
-                    return DVF_est()
-                 
-""" This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+                    out = DVF_est()
+        return out
 
-            for c in block_layers:                                                                  # This loop creates the final/interm DVF by appending 3D CNN layers in
-                layers.append(                                                                      # sequence (using the length and elements of block_layers to determine the 
-                    nn.Sequential(                                                                  # depth and channel outputs respectively) according to Fig.2(d).
-                        nn.Conv3d(
-                            in_channels=last_in_channels,                                           # last_in_channels = 64+32
-                            out_channels=int(c * self._channel_multiplier),                         # c cycles block layers;  _channel_multiplier = 1.
-                            kernel_size=(3, 3, 3),
-                            padding=1),
-                        nn.LeakyReLU(
-                            negative_slope=self._leaky_relu_alpha)
-                    ))
-                last_in_channels += int(c * self._channel_multiplier)
-            layers.append(                                                                          # The final layer of the DVF is appended to the DVF sequence here.
-                nn.Conv3d(
-                    in_channels=block_layers[-1],
-                    out_channels=3,
-                    kernel_size=(3, 3, 3),
-                    padding=1))
-            if self._shared_flow_decoder:
-                return layers
-            result.append(layers)
-        return result
-[end of snippet]"""
-
-def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
+    def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
         #Build model for flow refinement using dilated convolutions.                                 # with Fig.2(e).
+        out = []
         last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
         DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, 3)       
         if cuda == True:
@@ -257,37 +233,10 @@ def _build_refinement_model(self):                                              
             DVF_est
         with torch.no_grad():
             if cuda == True:
-                return DVF_est().cuda()
+                out = DVF_est().cuda()
             else:
-                return DVF_est()
-        
-        
-""" This is the original final DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
-    def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
-        #Build model for flow refinement using dilated convolutions.                                 # with Fig.2(e).
-        layers = []
-        last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
-        for c, d in [(128, 1), (128, 2), (128, 4), (96, 8), (64, 16), (32, 1)]:                     # List of tuples: (each layer's output channel size, dilation)
-            layers.append(
-                nn.Conv3d(
-                    in_channels=last_in_channels,
-                    out_channels=int(c * self._channel_multiplier),
-                    kernel_size=(3, 3,3),
-                    stride=1,
-                    padding=d,
-                    dilation=d))
-            layers.append(
-                nn.LeakyReLU(negative_slope=self._leaky_relu_alpha))
-            last_in_channels = int(c * self._channel_multiplier)
-        layers.append(
-            nn.Conv3d(
-                in_channels=last_in_channels,
-                out_channels=3,
-                kernel_size=(3, 3,3),
-                stride=1,
-                padding=1))
-        return nn.ModuleList(layers)
-[end of snippet]"""
+                out = DVF_est()
+        return out
 
     def _build_1x1_shared_decoder(self):
         """Build layers for flow estimation."""
@@ -380,8 +329,21 @@ class RRNFeaturePyramid(nn.Module):
 
     return features
 
-""" This is the original DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+""" This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
+    def _build_flow_layers(self):
+        # Build layers for flow estimation.
+        # Empty list of layers level 0 because flow is only estimated at levels > 0.
+        result = nn.ModuleList()
 
+        block_layers = [128, 128, 96, 64, 32]
+        input_feat_shape = [196,128,96,64,32,16][::-1][:4]
+        for i in range(0, self._num_levels):
+            layers = nn.ModuleList()
+            last_in_channels = (64+32) if not self._use_cost_volume else (125+input_feat_shape[i])
+            if self._action_channels is not None and self._action_channels > 0:
+                last_in_channels += self._action_channels + 2 # 2 for xy augmentation
+            if i != self._num_levels-1:
+                last_in_channels += 3 + self._num_context_up_channels
             for c in block_layers:                                                                  # This loop creates the final/interm DVF by appending 3D CNN layers in
                 layers.append(                                                                      # sequence (using the length and elements of block_layers to determine the 
                     nn.Sequential(                                                                  # depth and channel outputs respectively) according to Fig.2(d).
