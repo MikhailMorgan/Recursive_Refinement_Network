@@ -10,12 +10,11 @@ import matplotlib.pyplot as plt
 import rrn_flags
 import torch.backends.cudnn as cudnn
 import nibabel as nib
-import _winapi
-
 
 def main(argv):
     cudnn.benchmark = True
-    gpu_utils.setup_gpu()
+    #gpu_utils.setup_gpu()
+    cuda = False
 
     FLAGS = flags.FLAGS
 
@@ -30,7 +29,7 @@ def main(argv):
     net = rrn_net.RRN(num_channels=(1 if use_lung else 1), num_levels=4, use_cost_volume=True,
                           action_channels=action_channels).to(gpu_utils.device)
 
-    # Creat  dataset
+    # Create  dataset
     train_dataset = LungDataset(pair = True)
     train_sampler = torch.utils.data.RandomSampler(train_dataset,replacement=True,num_samples=50)
     batch_size = 1

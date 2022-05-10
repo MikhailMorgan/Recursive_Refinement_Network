@@ -208,7 +208,7 @@ class RRNFlow(nn.Module):
             #    last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
             if i != self._num_levels-1:                                                             # if building intermediate - as opposed to initial - DVF (num_layers = 5),
                 last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(upsampled feature 1?)
-                
+            cuda = False    
             DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
             if cuda == True:
                 DVF_est.cuda()
@@ -227,6 +227,7 @@ class RRNFlow(nn.Module):
         out = []
         last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
         DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, 3)       
+        cuda = False
         if cuda == True:
             DVF_est.cuda()
         else:

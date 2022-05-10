@@ -7,7 +7,7 @@ class RRN(nn.Module):
         super(RRN, self).__init__()
 
         self._pyramid = rrn_model.RRNFeaturePyramid(num_levels=num_levels, num_channels=num_channels)
-        self._flow_model = rrn_model.RRNFlow(num_levels = num_levels, num_channels_upsampled_context=32,
+        self._flow_model = rrn_model.RRNFlow(num_levels = num_levels, num_context_up_channels=32,
                                                use_cost_volume=use_cost_volume, use_feature_warp=True,
                                                action_channels=action_channels)
 
