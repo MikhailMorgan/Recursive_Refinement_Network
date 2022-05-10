@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import rrn_flags
 import torch.backends.cudnn as cudnn
 import nibabel as nib
+import _winapi
 
 
 def main(argv):
