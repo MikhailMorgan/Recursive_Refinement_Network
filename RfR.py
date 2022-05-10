@@ -5,11 +5,11 @@ class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -24,7 +24,7 @@ class Down(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
+            nn.MaxPool3d(2),
             DoubleConv(in_channels, out_channels)
         )
 
@@ -40,7 +40,7 @@ class Up(nn.Module):
         super().__init__()
         self.up_conv = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0),
+            nn.Conv3d(in_channels, out_channels, kernel_size=1, padding=0),
         ) 
         self.conv = DoubleConv(out_channels * 2, out_channels)
 
@@ -56,7 +56,7 @@ class OutConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(OutConv, self).__init__()
         self.conv_sigmoid = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+            nn.Conv3d(in_channels, out_channels, kernel_size=1),
             nn.Sigmoid()
         )
 
@@ -87,7 +87,7 @@ class RfR_model(nn.Module):
         self.up3 = Up(4*self.in_channels, 4*self.in_channels)
         self.up4 = Up(4*self.in_channels, 2*self.in_channels)
         self.up5 = Up(2*self.in_channels, 2*self.in_channels)
-        self.up6 = Up(2*self.in_channels, self.out_channels)
+        self.up6 = Up(2*self.in_channels, self.in_channels)
         self.outputL = OutConv(self.in_channels, self.out_channels)
         
     def forward(self, x):
