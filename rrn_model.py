@@ -212,14 +212,14 @@ class RRNFlow(nn.Module):
             DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
             if cuda == True:
                 DVF_est.cuda()
-                else:
+            else:
                 DVF_est
             #
             with torch.no_grad():
                 if cuda == True:
-                    return DVF_est(x_in.cuda())
+                    return DVF_est().cuda()
                 else:
-                    return DVF_est(x_in)
+                    return DVF_est()
                  
 """ This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
 
@@ -249,13 +249,17 @@ class RRNFlow(nn.Module):
 
 def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
         #Build model for flow refinement using dilated convolutions.                                 # with Fig.2(e).
-        layers = []
         last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
-        DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
+        DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, 3)       
         if cuda == True:
             DVF_est.cuda()
         else:
             DVF_est
+        with torch.no_grad():
+            if cuda == True:
+                return DVF_est().cuda()
+            else:
+                return DVF_est()
         
         
 """ This is the original final DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
