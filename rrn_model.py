@@ -99,17 +99,17 @@ class RRNFlow(nn.Module):
                 conv_1x1 = self._1x1_shared_decoder[level]
                 features1 = conv_1x1(features1)
 
-            # Compute context and flow from previous flow, cost volume, and features1.
+            # Compute context and flow from previous flow, cost volume, and features1.                                                  
             if flow_up is None:
                 x_in = torch.cat([cost_volume, features1], dim=1)
             else:
                 if context_up is None:
                     x_in = torch.cat([flow_up, cost_volume, features1], dim=1)                                                          # The input to the DVF estimator, Fig 2(b)
                 else:
-                    x_in = torch.cat([context_up, flow_up, cost_volume, features1], dim=1)                                              # 
+                    x_in = torch.cat([context_up, flow_up, cost_volume, features1], dim=1)                                              # x_in is the input set to the DVF estimator
 
-            if self._action_channels is not None and self._action_channels > 0:
-                # convert every entry in actions to a channel filled with this value and attach it to flow input
+            if self._action_channels is not None and self._action_channels > 0:                                                         # Currently irrellevant because action_channels
+                # convert every entry in actions to a channel filled with this value and attach it to flow input                        # is None
                 B, _, H, W = features1.shape
                 # additionally append xy position augmentation
                 action_tensor = actions[:, :, None, None].repeat(1, 1, H, W)
@@ -118,7 +118,7 @@ class RRNFlow(nn.Module):
                 gy = gy.repeat(B, 1, 1, 1).to(gpu_utils.device)
                 x_in = torch.cat([x_in, action_tensor, gx, gy], dim=1)
                 
-            '''
+            
             # Use dense-net connections.
             x_out = None
             if self._shared_flow_decoder:
@@ -131,31 +131,8 @@ class RRNFlow(nn.Module):
                 x_in = torch.cat([x_in, x_out], dim=1)
             context = x_out
 
-            flow = flow_layers[-1](context)                                                                               # Presumably this is the recursive portion(?)
-            '''
-            
-            #Use dense-net connections.                                                                                              
-            x_out = None                                                                                                               
-            if self._shared_flow_decoder:                                                                                              
-                # reuse the same flow decoder on all levels                                                                           
-                flow_layers = self._flow_layers
-            else:                                                                                                                     
-                flow_layers = self._flow_layers[level]                                                                                
-            for layer in flow_layers[:-1]:                                                                                             
-                x_out = layer(x_in)       
-            context = x_out
-            
-            self.double_conv = nn.Sequential(                                                       # Probably not the best place for a definition like this? Lol
-                nn.Conv3d(_num_context_up_channels, 3, kernel_size=3, padding=1),
-                nn.BatchNorm3d(3),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(3, 3, kernel_size=3, padding=1),
-                nn.BatchNorm3d(3),
-                nn.ReLU(inplace=True)
-                )
-            flow = self.double_conv(context)
-                
-            
+            flow = flow_layers[-1](context)                                                                               
+                      
             # dropout full layer
             if self.training and self._drop_out_rate:
                 maybe_dropout = (torch.rand([]) > self._drop_out_rate).type(torch.get_default_dtype())
@@ -224,22 +201,25 @@ class RRNFlow(nn.Module):
         # Empty list of layers level 0 because flow is only estimated at levels > 0.                # a modified UNet called RunfastReg (RfR). 
         # result = nn.ModuleList()
 
-        #block_layers = [128, 128, 96, 64, 32]                                                       # Channel output for each layer of DVF
-        #input_feat_shape = [196,128,96,64,32,16][::-1][:4]                                          # Why do it this way? input_feat_shape = [16, 32, 64, 96]
         for i in range(0, self._num_levels):                                                        # Loop moves through each level of the RRN (NOT THE DVF)
-            #layers = nn.ModuleList()                                                                # Context currently has 32 layers
+            #layers = nn.ModuleList()                                                               # Context currently has 32 layers
             last_in_channels = (64+32)#if not self._use_cost_volume else (125+input_feat_shape[i])  # Number of channels into final RfR Layer; _use_cost_volume=True (line 16)
-            if self._action_channels is not None and self._action_channels > 0:                    # This condition is never true because _action_channels is forced None
-                last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
+            #if self._action_channels is not None and self._action_channels > 0:                    # This condition is never true because _action_channels is forced None
+            #    last_in_channels += self._action_channels + 2                                      # (2 for xy augmentation)?
             if i != self._num_levels-1:                                                             # if building intermediate - as opposed to initial - DVF (num_layers = 5),
                 last_in_channels += 3 + self._num_context_up_channels                               # then DVF input is 96 (LCV) + 3 (flow from previous layer) + 32(upsampled feature 1?)
                 
             DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
-                if cuda == True:
-                    DVF_est.cuda()
+            if cuda == True:
+                DVF_est.cuda()
                 else:
-                    DVF_est
-                    
+                DVF_est
+            #
+            with torch.no_grad():
+                if cuda == True:
+                    return DVF_est(x_in.cuda())
+                else:
+                    return DVF_est(x_in)
                  
 """ This is the original init/interm DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
 
@@ -272,20 +252,11 @@ def _build_refinement_model(self):                                              
         layers = []
         last_in_channels = 32+3                                                                     # The number of inputs to the final DVF is len(context) + len(flow) = 32+3
         DVF_est = RfR.RfR_model('RunfastReg', last_in_channels, _num_context_up_channels)       
-            if cuda == True:
-                DVF_est.cuda()
-            else:
-                DVF_est
-        self.double_conv = nn.Sequential(                                                            # Probably not the best place for a definition like this? Lol
-            nn.Conv3d(_num_context_up_channels, 3, kernel_size=3, padding=1),
-            nn.BatchNorm3d(3),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(3, 3, kernel_size=3, padding=1),
-            nn.BatchNorm3d(3),
-            nn.ReLU(inplace=True)
-            )
-            flow = self.double_conv(context)
-        flow = self.double_conv(context)
+        if cuda == True:
+            DVF_est.cuda()
+        else:
+            DVF_est
+        
         
 """ This is the original final DVF portion which I have commented for my own uses - the comments might be useful for future implimentations of the RRN with or without RfR
     def _build_refinement_model(self):                                                              # This is the code used to create the final DVF estimator in accordance 
